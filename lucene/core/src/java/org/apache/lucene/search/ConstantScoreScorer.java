@@ -28,6 +28,7 @@ public final class ConstantScoreScorer extends Scorer {
   private final float score;
   private final TwoPhaseIterator twoPhaseIterator;
   private final DocIdSetIterator disi;
+  private boolean isCompetitive = true;
 
   /** Constructor based on a {@link DocIdSetIterator} which will be used to
    *  drive iteration. Two phase iteration will not be supported.
@@ -70,12 +71,27 @@ public final class ConstantScoreScorer extends Scorer {
 
   @Override
   public int docID() {
+    if (isCompetitive == false) {
+      return DocIdSetIterator.NO_MORE_DOCS;
+    };
     return disi.docID();
   }
 
   @Override
   public float score() throws IOException {
     return score;
+  }
+
+  @Override
+  public void setMinCompetitiveScore(float minScore) {
+    // if competitive score was set higher than constant score of this Scorer,
+    // then it is not able to produce competitive docs anymore and
+    // we need to set isCompetitive to false for the whole Scorer
+    if (minScore > score){
+      isCompetitive = false;
+    } else {
+      isCompetitive = true;
+    }
   }
 
 }
