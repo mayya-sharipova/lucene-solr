@@ -16,10 +16,15 @@
  */
 package org.apache.lucene.index;
 
+import static com.carrotsearch.randomizedtesting.RandomizedTest.randomBoolean;
+import static com.carrotsearch.randomizedtesting.RandomizedTest.randomLongBetween;
+import static java.util.stream.Collectors.toList;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -27,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
@@ -1200,5 +1206,75 @@ public class TestIndexWriterReader extends LuceneTestCase {
     r2.close();
     w.close();
     dir.close();
+  }
+
+  public void testIndexWriterWithLeafSorter() throws IOException {
+    final String FIELD_NAME = "field1";
+    final boolean ASC_SORT = randomBoolean();
+    final long MISSING_VALUE =
+        ASC_SORT ? Long.MAX_VALUE : Long.MIN_VALUE; // missing values at the end
+
+    // create a comparator that sort leaf readers according with
+    // the min value (asc sort) or max value (desc sort) of its points
+    Comparator<LeafReader> leafSorter =
+        Comparator.comparingLong(
+            r -> {
+              try {
+                PointValues points = r.getPointValues(FIELD_NAME);
+                if (points != null) {
+                  byte[] sortValue =
+                      ASC_SORT ? points.getMinPackedValue() : points.getMaxPackedValue();
+                  return LongPoint.decodeDimension(sortValue, 0);
+                }
+              } catch (IOException e) {
+              }
+              return MISSING_VALUE;
+            });
+    if (ASC_SORT == false) {
+      leafSorter = leafSorter.reversed();
+    }
+
+    final int NUM_DOCS = atLeast(30);
+    try (Directory dir = newDirectory();
+        IndexWriter writer = new IndexWriter(dir, new IndexWriterConfig(), leafSorter)) {
+      for (int i = 0; i < NUM_DOCS; ++i) {
+        final Document doc = new Document();
+        doc.add(new LongPoint(FIELD_NAME, randomLongBetween(1, 99)));
+        writer.addDocument(doc);
+        if (i > 0 && i % 10 == 0) writer.flush();
+      }
+
+      // test that leafReaders are sorted according to leafSorter
+      try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        List<LeafReader> leafReaders =
+            reader.leaves().stream()
+                .map(LeafReaderContext::reader)
+                .sorted(leafSorter)
+                .collect(toList());
+        List<LeafReader> leafReaders2 =
+            reader.leaves().stream().map(LeafReaderContext::reader).collect(toList());
+        assertEquals(leafReaders, leafReaders2);
+
+        // add more documents that should be sorted first
+        final long FIRST_VALUE = ASC_SORT ? 0 : 100;
+        for (int i = 0; i < 10; ++i) {
+          final Document doc = new Document();
+          doc.add(new LongPoint(FIELD_NAME, FIRST_VALUE));
+          writer.addDocument(doc);
+        }
+        writer.flush();
+
+        // and open again
+        try (DirectoryReader reader2 = DirectoryReader.openIfChanged(reader)) {
+          leafReaders =
+              reader2.leaves().stream()
+                  .map(LeafReaderContext::reader)
+                  .sorted(leafSorter)
+                  .collect(toList());
+          leafReaders2 = reader2.leaves().stream().map(LeafReaderContext::reader).collect(toList());
+          assertEquals(leafReaders, leafReaders2);
+        }
+      }
+    }
   }
 }

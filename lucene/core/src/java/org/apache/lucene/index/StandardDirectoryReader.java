@@ -128,6 +128,10 @@ public final class StandardDirectoryReader extends DirectoryReader {
 
       writer.incRefDeleter(segmentInfos);
 
+      if (writer.getLeafSorter() != null) {
+        readers.sort(writer.getLeafSorter());
+      }
+
       StandardDirectoryReader result =
           new StandardDirectoryReader(
               dir,
