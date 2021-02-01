@@ -16,6 +16,7 @@
  */
 package org.apache.lucene.index;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -559,5 +560,240 @@ public final class FieldInfo {
    */
   public boolean isSoftDeletesField() {
     return softDeletesField;
+  }
+
+  public static class Builder {
+    private final String name;
+    private final Map<String, String> attributes = new HashMap<>();
+    private boolean omitNorms = false;
+    private boolean storeTermVector = false;
+    private IndexOptions indexOptions = IndexOptions.NONE;
+    private long dvGen;
+    private DocValuesType docValuesType = DocValuesType.NONE;
+    private int pointDimensionCount = 0;
+    private int pointIndexDimensionCount = 0;
+    private int pointNumBytes = 0;
+    private int vectorDimension = 0;
+    private VectorValues.SearchStrategy vectorSearchStrategy = VectorValues.SearchStrategy.NONE;
+
+    public Builder(String name) {
+      this.name = name;
+    }
+
+    public String putAttribute(String key, String value) {
+      return attributes.put(key, value);
+    }
+
+    public void setIndexOptions(IndexOptions newIndexOptions, boolean newOmitNorms,
+                                boolean newStoreTermVector) {
+      if (indexOptions != IndexOptions.NONE && indexOptions != newIndexOptions) {
+        throw new IllegalArgumentException(
+                "cannot change field \""
+                        + name
+                        + "\" from index options="
+                        + indexOptions
+                        + " to inconsistent index options="
+                        + newIndexOptions
+        );
+      }
+      if (newIndexOptions == IndexOptions.NONE) {
+        if (newStoreTermVector) {
+          throw new IllegalArgumentException("non-indexed field '" + name + "' cannot store term vectors");
+        }
+        if (newOmitNorms) {
+          throw new IllegalArgumentException("non-indexed field '" + name + "' cannot omit norms");
+        }
+      }
+      indexOptions = newIndexOptions;
+      omitNorms = newOmitNorms;
+      storeTermVector = newStoreTermVector;
+    }
+
+    public void setDocValues(DocValuesType newDocValuesType, long newDvGen) {
+      if (docValuesType != DocValuesType.NONE && docValuesType != newDocValuesType) {
+        throw new IllegalArgumentException(
+                "cannot change DocValues type from "
+                        + docValuesType
+                        + " to "
+                        + newDocValuesType
+                        + " for field \""
+                        + name
+                        + "\"");
+      }
+      if (newDocValuesType == DocValuesType.NONE && newDvGen != -1) {
+        throw new IllegalArgumentException(
+                "field '" + name + "' cannot have a docvalues update generation without having docvalues");
+      }
+      this.docValuesType = newDocValuesType;
+      this.dvGen = newDvGen;
+    }
+
+    public void setPoints(int dimensionCount, int indexDimensionCount, int numBytes) {
+      if (pointDimensionCount != 0 && pointDimensionCount != dimensionCount) {
+        throw new IllegalArgumentException(
+                "cannot change point dimension count from "
+                        + pointDimensionCount
+                        + " to "
+                        + dimensionCount
+                        + " for field=\""
+                        + name
+                        + "\"");
+      }
+      if (pointIndexDimensionCount != 0 && pointIndexDimensionCount != indexDimensionCount) {
+        throw new IllegalArgumentException(
+                "cannot change point index dimension count from "
+                        + pointIndexDimensionCount
+                        + " to "
+                        + indexDimensionCount
+                        + " for field=\""
+                        + name
+                        + "\"");
+      }
+      if (pointNumBytes != 0 && pointNumBytes != numBytes) {
+        throw new IllegalArgumentException(
+                "cannot change point numBytes from "
+                        + pointNumBytes
+                        + " to "
+                        + numBytes
+                        + " for field=\""
+                        + name
+                        + "\"");
+      }
+      if (dimensionCount < 0) {
+        throw new IllegalArgumentException(
+                "point dimension count must be >= 0; got "
+                        + dimensionCount
+                        + " for field=\""
+                        + name
+                        + "\"");
+      }
+      if (indexDimensionCount < 0) {
+        throw new IllegalArgumentException(
+                "point index dimension count must be >= 0; got " + indexDimensionCount + " for field=\"" + name + "\"");
+      }
+      if (numBytes < 0) {
+        throw new IllegalArgumentException(
+                "point numBytes must be >= 0; got " + numBytes + " for field=\"" + name + "\"");
+      }
+      if (indexDimensionCount > PointValues.MAX_INDEX_DIMENSIONS) {
+        throw new IllegalArgumentException(
+                "point index dimension count must be < PointValues.MAX_INDEX_DIMENSIONS (= "
+                        + PointValues.MAX_INDEX_DIMENSIONS
+                        + "); got "
+                        + indexDimensionCount
+                        + " for field=\""
+                        + name
+                        + "\"");
+      }
+      if (indexDimensionCount > dimensionCount) {
+        throw new IllegalArgumentException(
+                "point index dimension count must be <= point dimension count (= "
+                        + dimensionCount
+                        + "); got "
+                        + indexDimensionCount
+                        + " for field=\""
+                        + name
+                        + "\"");
+      }
+      if (numBytes > PointValues.MAX_NUM_BYTES) {
+        throw new IllegalArgumentException(
+                "point numBytes must be <= PointValues.MAX_NUM_BYTES (= "
+                        + PointValues.MAX_NUM_BYTES
+                        + "); got "
+                        + numBytes
+                        + " for field=\""
+                        + name
+                        + "\"");
+      }
+      if (dimensionCount != 0 && numBytes == 0) {
+        throw new IllegalArgumentException("pointNumBytes must be > 0 when pointDimensionCount=" + dimensionCount);
+      }
+      if (indexDimensionCount != 0 && dimensionCount == 0) {
+        throw new IllegalArgumentException("pointIndexDimensionCount must be 0 when pointDimensionCount=0");
+      }
+      if (numBytes != 0 && dimensionCount == 0) {
+        throw new IllegalArgumentException("pointDimensionCount must be > 0 when pointNumBytes=" + numBytes);
+      }
+      pointDimensionCount = dimensionCount;
+      pointIndexDimensionCount = indexDimensionCount;
+      pointNumBytes = numBytes;
+    }
+
+    public void setVectors(int dimension, VectorValues.SearchStrategy searchStrategy) {
+      if (vectorSearchStrategy != VectorValues.SearchStrategy.NONE && vectorSearchStrategy != searchStrategy) {
+        throw new IllegalArgumentException(
+                "cannot change vector search strategy from "
+                        + vectorSearchStrategy
+                        + " to "
+                        + searchStrategy
+                        + " for field=\""
+                        + name
+                        + "\"");
+      }
+      if (dimension < 0) {
+        throw new IllegalArgumentException("vector dimension must be >= 0; got " + dimension);
+      }
+      if (dimension > VectorValues.MAX_DIMENSIONS) {
+        throw new IllegalArgumentException(
+                "vector dimension must be <= VectorValues.MAX_DIMENSIONS (="
+                        + VectorValues.MAX_DIMENSIONS
+                        + "); got "
+                        + dimension);
+      }
+      if (dimension == 0 && searchStrategy != VectorValues.SearchStrategy.NONE) {
+        throw new IllegalArgumentException(
+                "vector search strategy must be NONE when the vector dimension = 0; got " + searchStrategy);
+      }
+      this.vectorDimension = dimension;
+      this.vectorSearchStrategy = searchStrategy;
+    }
+
+    public String name() {
+      return name;
+    }
+
+    public Map<String, String> attributes() {
+      return attributes;
+    }
+
+    public boolean omitNorms() {
+      return omitNorms;
+    }
+
+    public boolean storeTermVector() {
+      return storeTermVector;
+    }
+
+    public IndexOptions indexOptions() {
+      return indexOptions;
+    }
+
+    public DocValuesType docValuesType() {
+      return docValuesType;
+    }
+
+    public long dvGen() {
+      return dvGen;
+    }
+
+    public int pointDimensionCount() {
+      return pointDimensionCount;
+    }
+
+    public int pointIndexDimensionCount() {
+      return pointIndexDimensionCount;
+    }
+
+    public int pointNumBytes() {
+      return pointNumBytes;
+    }
+
+    public int vectorDimension() {
+      return vectorDimension;
+    }
+
+    public VectorValues.SearchStrategy vectorSearchStrategy() {
+      return vectorSearchStrategy;
+    }
   }
 }

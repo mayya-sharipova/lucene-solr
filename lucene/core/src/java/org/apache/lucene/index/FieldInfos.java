@@ -861,47 +861,11 @@ public class FieldInfos implements Iterable<FieldInfo> {
         // original attributes is UnmodifiableMap
         attributes = new HashMap<>(attributes);
       }
-
       FieldInfo fi = fieldInfo(name);
       if (fi == null) {
-        // This field wasn't yet added to this in-RAM
-        // segment's FieldInfo, so now we get a global
-        // number for this field.  If the field was seen
-        // before then we'll get the same name and number,
-        // else we'll allocate a new one:
-        final int fieldNumber =
-            globalFieldNumbers.addOrGet(
-                name,
-                preferredFieldNumber,
-                indexOptions,
-                docValues,
-                dataDimensionCount,
-                indexDimensionCount,
-                dimensionNumBytes,
-                vectorDimension,
-                vectorSearchStrategy,
-                isSoftDeletesField);
-        fi =
-            new FieldInfo(
-                name,
-                fieldNumber,
-                storeTermVector,
-                omitNorms,
-                storePayloads,
-                indexOptions,
-                docValues,
-                dvGen,
-                attributes,
-                dataDimensionCount,
-                indexDimensionCount,
-                dimensionNumBytes,
-                vectorDimension,
-                vectorSearchStrategy,
-                isSoftDeletesField);
-        assert !byName.containsKey(fi.name);
-        globalFieldNumbers.verifyConsistent(
-            Integer.valueOf(fi.number), fi.name, fi.getDocValuesType());
-        byName.put(fi.name, fi);
+        fi = addField(name, preferredFieldNumber, storeTermVector, omitNorms, storePayloads,
+            indexOptions, docValues, dvGen, attributes, dataDimensionCount, indexDimensionCount,
+            dimensionNumBytes, vectorDimension, vectorSearchStrategy, isSoftDeletesField);
       } else {
         fi.update(
             storeTermVector,
@@ -930,6 +894,8 @@ public class FieldInfos implements Iterable<FieldInfo> {
       return fi;
     }
 
+
+
     public FieldInfo add(FieldInfo fi) {
       return add(fi, -1);
     }
@@ -954,6 +920,50 @@ public class FieldInfos implements Iterable<FieldInfo> {
           fi.isSoftDeletesField());
     }
 
+    public FieldInfo add(
+            String name,
+            boolean storeTermVector,
+            boolean omitNorms,
+            boolean storePayloads,
+            IndexOptions indexOptions,
+            DocValuesType docValues,
+            long dvGen,
+            Map<String, String> attributes,
+            int dataDimensionCount,
+            int indexDimensionCount,
+            int dimensionNumBytes,
+            int vectorDimension,
+            VectorValues.SearchStrategy vectorSearchStrategy) {
+      boolean isSoftDeletesField = name.equals(globalFieldNumbers.softDeletesFieldName);
+      FieldInfo fi = addField(name, -1, storeTermVector, omitNorms, storePayloads,
+            indexOptions, docValues, dvGen, attributes, dataDimensionCount, indexDimensionCount,
+            dimensionNumBytes, vectorDimension, vectorSearchStrategy, isSoftDeletesField);
+      return fi;
+    }
+
+    public FieldInfo add(FieldInfo.Builder fiBuilder) {
+      boolean isSoftDeletesField = fiBuilder.name().equals(globalFieldNumbers.softDeletesFieldName);
+      boolean storePayloads = fiBuilder.indexOptions() != IndexOptions.NONE
+          && fiBuilder.indexOptions().compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0;
+      FieldInfo fi = addField(
+          fiBuilder.name(),
+          -1,
+          fiBuilder.storeTermVector(),
+          fiBuilder.omitNorms(),
+          storePayloads,
+          fiBuilder.indexOptions(),
+          fiBuilder.docValuesType(),
+          fiBuilder.dvGen(),
+          fiBuilder.attributes(),
+          fiBuilder.pointDimensionCount(),
+          fiBuilder.pointIndexDimensionCount(),
+          fiBuilder.pointNumBytes(),
+          fiBuilder.vectorDimension(),
+          fiBuilder.vectorSearchStrategy(),
+          isSoftDeletesField);
+      return fi;
+    }
+
     public FieldInfo fieldInfo(String fieldName) {
       return byName.get(fieldName);
     }
@@ -965,6 +975,61 @@ public class FieldInfos implements Iterable<FieldInfo> {
             "FieldInfos.Builder was already finished; cannot add new fields");
       }
       return true;
+    }
+
+    private FieldInfo addField(String name,
+        int preferredFieldNumber,
+        boolean storeTermVector,
+        boolean omitNorms,
+        boolean storePayloads,
+        IndexOptions indexOptions,
+        DocValuesType docValues,
+        long dvGen,
+        Map<String, String> attributes,
+        int dataDimensionCount,
+        int indexDimensionCount,
+        int dimensionNumBytes,
+        int vectorDimension,
+        VectorValues.SearchStrategy vectorSearchStrategy,
+        boolean isSoftDeletesField) {
+      // This field wasn't yet added to this in-RAM
+      // segment's FieldInfo, so now we get a global
+      // number for this field.  If the field was seen
+      // before then we'll get the same name and number,
+      // else we'll allocate a new one:
+      final int fieldNumber = globalFieldNumbers.addOrGet(
+          name,
+          preferredFieldNumber,
+          indexOptions,
+          docValues,
+          dataDimensionCount,
+          indexDimensionCount,
+          dimensionNumBytes,
+          vectorDimension,
+          vectorSearchStrategy,
+          isSoftDeletesField
+      );
+      FieldInfo fi = new FieldInfo(
+          name,
+          fieldNumber,
+          storeTermVector,
+          omitNorms,
+          storePayloads,
+          indexOptions,
+          docValues,
+          dvGen,
+          attributes,
+          dataDimensionCount,
+          indexDimensionCount,
+          dimensionNumBytes,
+          vectorDimension,
+          vectorSearchStrategy,
+          isSoftDeletesField
+      );
+      assert byName.containsKey(fi.name) == false;
+      globalFieldNumbers.verifyConsistent(Integer.valueOf(fi.number), fi.name, fi.getDocValuesType());
+      byName.put(fi.name, fi);
+      return fi;
     }
 
     FieldInfos finish() {

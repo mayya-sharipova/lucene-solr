@@ -622,6 +622,95 @@ final class IndexingChain implements Accountable {
     }
   }
 
+  void processDocument2(int docID, Iterable<? extends IndexableField> document) throws IOException {
+    // How many field names we've seen (collapses multiple field instances by the same name)
+    int fieldCount = 0;
+    long fieldGen = nextFieldGen++;
+
+    // 1st pass – verify that doc schema confirms with the index schema
+    for (IndexableField field : document) {
+      String fieldName = field.name();
+      IndexableFieldType fieldType = field.fieldType();
+      PerField pf = getOrAddPerField(fieldName, fieldType);
+      updateOrVerifyFieldSchema(pf, fieldType);
+      boolean first = pf.fieldGen != fieldGen;
+      if (first) {
+        fields[fieldCount++] = pf;
+        pf.fieldGen = fieldGen;
+      }
+    }
+    for (int i = 0; i < fieldCount; i++) {
+      PerField pf = fields[i];
+      if (pf.fieldInfoBuilder != null) {
+        FieldInfo fi = fieldInfos.add(pf.fieldInfoBuilder);
+        pf.setFieldInfo(fi);
+      }
+
+    }
+    // indexing step
+  }
+
+  private PerField getOrAddPerField(String fieldName, IndexableFieldType fieldType) {
+    final int hashPos = fieldName.hashCode() & hashMask;
+    PerField pf = fieldHash[hashPos];
+    while (pf != null && pf.fieldName.equals(fieldName) != false) {
+      pf = pf.next;
+    }
+    if (pf != null) return pf;
+
+    // first time we encounter field with this name in this segment; build its FieldInfo
+    FieldInfo.Builder fiBuilder = new FieldInfo.Builder(fieldName);
+    Map<String, String> attributes = fieldType.getAttributes();
+    if (attributes != null) {
+      attributes.forEach((k, v) -> fiBuilder.putAttribute(k, v));
+    }
+    pf = new PerField(
+        fieldName,
+        indexCreatedVersionMajor,
+        fiBuilder,
+        null,
+        fieldType.indexOptions() != IndexOptions.NONE,
+        indexWriterConfig.getSimilarity(),
+        indexWriterConfig.getInfoStream(),
+        indexWriterConfig.getAnalyzer()
+    );
+    pf.next = fieldHash[hashPos];
+    fieldHash[hashPos] = pf;
+    totalFieldCount++;
+    // At most 50% load factor:
+    if (totalFieldCount >= fieldHash.length / 2) {
+      rehash();
+    }
+    if (totalFieldCount > fields.length) {
+      PerField[] newFields = new PerField[ArrayUtil.oversize(totalFieldCount, RamUsageEstimator.NUM_BYTES_OBJECT_REF)];
+      System.arraycopy(fields, 0, newFields, 0, fields.length);
+      fields = newFields;
+    }
+    return pf;
+  }
+
+  private void updateOrVerifyFieldSchema(PerField pf, IndexableFieldType fieldType) {
+    if (pf.fieldInfoBuilder != null) {
+      // this is the 1st document where we encountered this field, we can update its schema
+      if (fieldType.indexOptions() != IndexOptions.NONE) {
+        pf.fieldInfoBuilder.setIndexOptions(fieldType.indexOptions(), fieldType.omitNorms(), fieldType.storeTermVectors());
+      }
+      if (fieldType.docValuesType() != DocValuesType.NONE) {
+        pf.fieldInfoBuilder.setDocValues(fieldType.docValuesType(), -1);
+      }
+      if (fieldType.pointDimensionCount() != 0) {
+        pf.fieldInfoBuilder.setPoints(fieldType.pointDimensionCount(), fieldType.pointIndexDimensionCount(), fieldType.pointNumBytes());
+      }
+      if (fieldType.vectorDimension() != 0) {
+        pf.fieldInfoBuilder.setVectors(fieldType.vectorDimension(), fieldType.vectorSearchStrategy());
+      }
+    }
+
+
+
+
+  }
+
   private int processField(int docID, IndexableField field, long fieldGen, int fieldCount)
       throws IOException {
     String fieldName = field.name();
@@ -969,7 +1058,9 @@ final class IndexingChain implements Accountable {
 
       fp =
           new PerField(
+              name,
               indexCreatedVersionMajor,
+              null,
               fi,
               invert,
               indexWriterConfig.getSimilarity(),
@@ -1025,9 +1116,10 @@ final class IndexingChain implements Accountable {
 
   /** NOTE: not static: accesses at least docState, termsHash. */
   private final class PerField implements Comparable<PerField> {
-
+    final String fieldName;
     final int indexCreatedVersionMajor;
-    final FieldInfo fieldInfo;
+    FieldInfo fieldInfo;
+    FieldInfo.Builder fieldInfoBuilder;
     final Similarity similarity;
 
     FieldInvertState invertState;
@@ -1058,13 +1150,17 @@ final class IndexingChain implements Accountable {
     private final Analyzer analyzer;
 
     PerField(
+        String fieldName,
         int indexCreatedVersionMajor,
+        FieldInfo.Builder fieldInfoBuilder,
         FieldInfo fieldInfo,
         boolean invert,
         Similarity similarity,
         InfoStream infoStream,
         Analyzer analyzer) {
+      this.fieldName = fieldName;
       this.indexCreatedVersionMajor = indexCreatedVersionMajor;
+      this.fieldInfoBuilder = fieldInfoBuilder;
       this.fieldInfo = fieldInfo;
       this.similarity = similarity;
       this.infoStream = infoStream;
@@ -1072,6 +1168,13 @@ final class IndexingChain implements Accountable {
       if (invert) {
         setInvertState();
       }
+    }
+
+    void setFieldInfo(FieldInfo fieldInfo) {
+      assert this.fieldInfoBuilder != null;
+      assert this.fieldInfo == null;
+      this.fieldInfo = fieldInfo;
+      this.fieldInfoBuilder = null;
     }
 
     void setInvertState() {
