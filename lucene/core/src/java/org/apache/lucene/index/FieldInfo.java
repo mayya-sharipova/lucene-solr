@@ -568,13 +568,15 @@ public final class FieldInfo {
     private boolean omitNorms = false;
     private boolean storeTermVector = false;
     private IndexOptions indexOptions = IndexOptions.NONE;
-    private long dvGen;
+    private long dvGen = -1;
     private DocValuesType docValuesType = DocValuesType.NONE;
     private int pointDimensionCount = 0;
     private int pointIndexDimensionCount = 0;
     private int pointNumBytes = 0;
     private int vectorDimension = 0;
     private VectorValues.SearchStrategy vectorSearchStrategy = VectorValues.SearchStrategy.NONE;
+
+    private static String errorMessage = "Inconsistency of field data structures across documents for field ";
 
     public Builder(String name) {
       this.name = name;
@@ -747,6 +749,35 @@ public final class FieldInfo {
       this.vectorDimension = dimension;
       this.vectorSearchStrategy = searchStrategy;
     }
+
+    public void reset() {
+      omitNorms = false;
+      storeTermVector = false;
+      indexOptions = IndexOptions.NONE;
+      dvGen = -1;
+      docValuesType = DocValuesType.NONE;
+      pointDimensionCount = 0;
+      pointIndexDimensionCount = 0;
+      pointNumBytes = 0;
+      vectorDimension = 0;
+      vectorSearchStrategy = VectorValues.SearchStrategy.NONE;
+    }
+
+    public void verifySameSchema(FieldInfo fi, int docID) {
+      if (indexOptions != fi.indexOptions
+            || omitNorms != fi.omitNorms
+            || storeTermVector != fi.storeTermVector
+            || docValuesType != fi.docValuesType
+            || dvGen != fi.dvGen
+            || pointDimensionCount != fi.pointDimensionCount
+            || pointIndexDimensionCount != fi.pointIndexDimensionCount
+            || pointNumBytes != fi.pointNumBytes
+            || vectorDimension != fi.vectorDimension
+            || vectorSearchStrategy != fi.vectorSearchStrategy) {
+        throw new IllegalArgumentException(errorMessage + "[" + name + "] of doc [" + docID + "]");
+      }
+    }
+
 
     public String name() {
       return name;

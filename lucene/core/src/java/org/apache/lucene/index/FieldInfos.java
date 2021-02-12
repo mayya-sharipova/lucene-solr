@@ -941,26 +941,37 @@ public class FieldInfos implements Iterable<FieldInfo> {
       return fi;
     }
 
-    public FieldInfo add(FieldInfo.Builder fiBuilder) {
-      boolean isSoftDeletesField = fiBuilder.name().equals(globalFieldNumbers.softDeletesFieldName);
-      boolean storePayloads = fiBuilder.indexOptions() != IndexOptions.NONE
-          && fiBuilder.indexOptions().compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0;
+    public FieldInfo add(
+        String name,
+        boolean storeTermVector,
+        boolean omitNorms,
+        IndexOptions indexOptions,
+        DocValuesType docValuesType,
+        long dvGen,
+        Map<String, String> attributes,
+        int dataDimensionCount,
+        int indexDimensionCount,
+        int dimensionNumBytes,
+        int vectorDimension,
+        VectorValues.SearchStrategy vectorSearchStrategy) {
+      boolean storePayloads = indexOptions != IndexOptions.NONE
+          && indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0;
       FieldInfo fi = addField(
-          fiBuilder.name(),
+          name,
           -1,
-          fiBuilder.storeTermVector(),
-          fiBuilder.omitNorms(),
+          storeTermVector,
+          omitNorms,
           storePayloads,
-          fiBuilder.indexOptions(),
-          fiBuilder.docValuesType(),
-          fiBuilder.dvGen(),
-          fiBuilder.attributes(),
-          fiBuilder.pointDimensionCount(),
-          fiBuilder.pointIndexDimensionCount(),
-          fiBuilder.pointNumBytes(),
-          fiBuilder.vectorDimension(),
-          fiBuilder.vectorSearchStrategy(),
-          isSoftDeletesField);
+          indexOptions,
+          docValuesType,
+          dvGen,
+          attributes,
+          dataDimensionCount,
+          indexDimensionCount,
+          dimensionNumBytes,
+          vectorDimension,
+          vectorSearchStrategy,
+          name.equals(globalFieldNumbers.softDeletesFieldName));
       return fi;
     }
 
